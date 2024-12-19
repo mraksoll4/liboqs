@@ -41,8 +41,8 @@ upstreams:
   -
     name: mlkem-native
     git_url: https://github.com/bhess/mlkem-native.git
-    git_branch: updates
-    git_commit: d02922e301696f82c996f6844d83b5f9a7933ad1
+    git_branch: updates-2
+    git_commit: 7cf2451b2a4a9d120b780d214c0bd3337141b425
     kem_meta_path: '{pretty_name_full}_META.yml'
     kem_scheme_path: '.'
   -
