@@ -30,20 +30,20 @@ OQS_KEM *OQS_KEM_ml_kem_768_new(void) {
 	return kem;
 }
 
-extern int PQCP_MLKEM_NATIVE_MLKEM768_keypair(uint8_t *pk, uint8_t *sk);
-extern int PQCP_MLKEM_NATIVE_MLKEM768_enc(uint8_t *ct, uint8_t *ss, const uint8_t *pk);
-extern int PQCP_MLKEM_NATIVE_MLKEM768_dec(uint8_t *ss, const uint8_t *ct, const uint8_t *sk);
+extern int PQCP_MLKEM_NATIVE_MLKEM768_C_keypair(uint8_t *pk, uint8_t *sk);
+extern int PQCP_MLKEM_NATIVE_MLKEM768_C_enc(uint8_t *ct, uint8_t *ss, const uint8_t *pk);
+extern int PQCP_MLKEM_NATIVE_MLKEM768_C_dec(uint8_t *ss, const uint8_t *ct, const uint8_t *sk);
 
 OQS_API OQS_STATUS OQS_KEM_ml_kem_768_keypair(uint8_t *public_key, uint8_t *secret_key) {
-	return (OQS_STATUS) PQCP_MLKEM_NATIVE_MLKEM768_keypair(public_key, secret_key);
+	return (OQS_STATUS) PQCP_MLKEM_NATIVE_MLKEM768_C_keypair(public_key, secret_key);
 }
 
 OQS_API OQS_STATUS OQS_KEM_ml_kem_768_encaps(uint8_t *ciphertext, uint8_t *shared_secret, const uint8_t *public_key) {
-	return (OQS_STATUS) PQCP_MLKEM_NATIVE_MLKEM768_enc(ciphertext, shared_secret, public_key);
+	return (OQS_STATUS) PQCP_MLKEM_NATIVE_MLKEM768_C_enc(ciphertext, shared_secret, public_key);
 }
 
 OQS_API OQS_STATUS OQS_KEM_ml_kem_768_decaps(uint8_t *shared_secret, const uint8_t *ciphertext, const uint8_t *secret_key) {
-	return (OQS_STATUS) PQCP_MLKEM_NATIVE_MLKEM768_dec(shared_secret, ciphertext, secret_key);
+	return (OQS_STATUS) PQCP_MLKEM_NATIVE_MLKEM768_C_dec(shared_secret, ciphertext, secret_key);
 }
 
 #endif

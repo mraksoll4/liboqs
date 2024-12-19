@@ -10,14 +10,13 @@
 #include "fips202x4.h"
 #include "indcpa.h"
 #include "ntt.h"
-#include "params.h"
 #include "poly.h"
 #include "polyvec.h"
 #include "randombytes.h"
 #include "rej_uniform.h"
 #include "symmetric.h"
 
-#include "arith_native.h"
+#include "arith_backend.h"
 #include "debug/debug.h"
 
 #include "cbmc.h"
@@ -60,14 +59,10 @@ static void unpack_pk(polyvec *pk, uint8_t seed[MLKEM_SYMBYTES],
   polyvec_frombytes(pk, packedpk);
   memcpy(seed, packedpk + MLKEM_POLYVECBYTES, MLKEM_SYMBYTES);
 
-  /*
-   * TODO! We know from the modulus check that this will result in an
-   * unsigned canonical polynomial, but CBMC does not know it. We should
-   * weaken the specification of `unpack_pk()` and all depending functions
-   * to work with the weaker 4096-bound, so that the proofs go through
-   * without the need of this redundant call to polyvec_reduce().
-   */
-  polyvec_reduce(pk);
+  /* NOTE: If a modulus check was conducted on the PK, we know at this
+   * point that the coefficients of `pk` are unsigned canonical. The
+   * specifications and proofs, however, do _not_ assume this, and instead
+   * work with the easily provable bound by 4096. */
 }
 
 /*************************************************
@@ -91,15 +86,14 @@ static void pack_sk(uint8_t r[MLKEM_INDCPA_SECRETKEYBYTES], polyvec *sk)
  * Description: De-serialize the secret key; inverse of pack_sk
  *
  * Arguments:   - polyvec *sk: pointer to output vector of polynomials (secret
- *key)
+ *                key)
  *              - const uint8_t *packedsk: pointer to input serialized secret
- *key
+ *                key
  **************************************************/
 static void unpack_sk(polyvec *sk,
                       const uint8_t packedsk[MLKEM_INDCPA_SECRETKEYBYTES])
 {
   polyvec_frombytes(sk, packedsk);
-  polyvec_reduce(sk);
 }
 
 /*************************************************
@@ -138,7 +132,7 @@ static void unpack_ciphertext(polyvec *b, poly *v,
 
 #ifndef MLKEM_GEN_MATRIX_NBLOCKS
 #define MLKEM_GEN_MATRIX_NBLOCKS \
-  ((12 * MLKEM_N / 8 * (1 << 12) / MLKEM_Q + SHAKE128_RATE) / SHAKE128_RATE)
+  ((12 * MLKEM_N / 8 * (1 << 12) / MLKEM_Q + XOF_RATE) / XOF_RATE)
 #endif
 
 /*
@@ -161,29 +155,29 @@ __contract__(
   ensures(array_bound(vec[3].coeffs, 0, MLKEM_N - 1, 0, (MLKEM_Q - 1))))
 {
   /* Temporary buffers for XOF output before rejection sampling */
-  uint8_t buf0[MLKEM_GEN_MATRIX_NBLOCKS * SHAKE128_RATE];
-  uint8_t buf1[MLKEM_GEN_MATRIX_NBLOCKS * SHAKE128_RATE];
-  uint8_t buf2[MLKEM_GEN_MATRIX_NBLOCKS * SHAKE128_RATE];
-  uint8_t buf3[MLKEM_GEN_MATRIX_NBLOCKS * SHAKE128_RATE];
+  uint8_t buf0[MLKEM_GEN_MATRIX_NBLOCKS * XOF_RATE];
+  uint8_t buf1[MLKEM_GEN_MATRIX_NBLOCKS * XOF_RATE];
+  uint8_t buf2[MLKEM_GEN_MATRIX_NBLOCKS * XOF_RATE];
+  uint8_t buf3[MLKEM_GEN_MATRIX_NBLOCKS * XOF_RATE];
 
   /* Tracks the number of coefficients we have already sampled */
   unsigned int ctr[KECCAK_WAY];
-  shake128x4incctx statex;
+  xof_x4_ctx statex;
   unsigned int buflen;
 
   shake128x4_inc_init(&statex);
 
   /* seed is MLKEM_SYMBYTES + 2 bytes long, but padded to MLKEM_SYMBYTES + 16 */
-  shake128x4_absorb_once(&statex, seed[0], seed[1], seed[2], seed[3],
-                    MLKEM_SYMBYTES + 2);
+  xof_x4_absorb(&statex, seed[0], seed[1], seed[2], seed[3],
+                MLKEM_SYMBYTES + 2);
 
   /*
    * Initially, squeeze heuristic number of MLKEM_GEN_MATRIX_NBLOCKS.
    * This should generate the matrix entries with high probability.
    */
-  shake128x4_squeezeblocks(buf0, buf1, buf2, buf3, MLKEM_GEN_MATRIX_NBLOCKS,
-                           &statex);
-  buflen = MLKEM_GEN_MATRIX_NBLOCKS * SHAKE128_RATE;
+  xof_x4_squeezeblocks(buf0, buf1, buf2, buf3, MLKEM_GEN_MATRIX_NBLOCKS,
+                       &statex);
+  buflen = MLKEM_GEN_MATRIX_NBLOCKS * XOF_RATE;
   ctr[0] = rej_uniform(vec[0].coeffs, MLKEM_N, 0, buf0, buflen);
   ctr[1] = rej_uniform(vec[1].coeffs, MLKEM_N, 0, buf1, buflen);
   ctr[2] = rej_uniform(vec[2].coeffs, MLKEM_N, 0, buf2, buflen);
@@ -193,7 +187,7 @@ __contract__(
    * So long as not all matrix entries have been generated, squeeze
    * one more block a time until we're done.
    */
-  buflen = SHAKE128_RATE;
+  buflen = XOF_RATE;
   while (ctr[0] < MLKEM_N || ctr[1] < MLKEM_N || ctr[2] < MLKEM_N ||
          ctr[3] < MLKEM_N)
   __loop__(
@@ -206,14 +200,14 @@ __contract__(
     invariant(ctr[2] > 0 ==> array_bound(vec[2].coeffs, 0, ctr[2] - 1, 0, (MLKEM_Q - 1)))
     invariant(ctr[3] > 0 ==> array_bound(vec[3].coeffs, 0, ctr[3] - 1, 0, (MLKEM_Q - 1))))
   {
-    shake128x4_squeezeblocks(buf0, buf1, buf2, buf3, 1, &statex);
+    xof_x4_squeezeblocks(buf0, buf1, buf2, buf3, 1, &statex);
     ctr[0] = rej_uniform(vec[0].coeffs, MLKEM_N, ctr[0], buf0, buflen);
     ctr[1] = rej_uniform(vec[1].coeffs, MLKEM_N, ctr[1], buf1, buflen);
     ctr[2] = rej_uniform(vec[2].coeffs, MLKEM_N, ctr[2], buf2, buflen);
     ctr[3] = rej_uniform(vec[3].coeffs, MLKEM_N, ctr[3], buf3, buflen);
   }
 
-  shake128x4_inc_ctx_release(&statex);
+  xof_x4_release(&statex);
 }
 
 /*
@@ -228,23 +222,22 @@ __contract__(
   assigns(memory_slice(entry, sizeof(poly)))
   ensures(array_bound(entry->coeffs, 0, MLKEM_N - 1, 0, (MLKEM_Q - 1))))
 {
-  shake128incctx state;
-  uint8_t buf[MLKEM_GEN_MATRIX_NBLOCKS * SHAKE128_RATE];
+  xof_ctx state;
+  uint8_t buf[MLKEM_GEN_MATRIX_NBLOCKS * XOF_RATE];
   unsigned int ctr, buflen;
 
   shake128_inc_init(&state);
-
-  shake128_absorb_once(&state, seed, MLKEM_SYMBYTES + 2);
+  xof_absorb(&state, seed, MLKEM_SYMBYTES + 2);
 
   /* Initially, squeeze + sample heuristic number of MLKEM_GEN_MATRIX_NBLOCKS.
    */
   /* This should generate the matrix entry with high probability. */
-  shake128_squeezeblocks(buf, MLKEM_GEN_MATRIX_NBLOCKS, &state);
-  buflen = MLKEM_GEN_MATRIX_NBLOCKS * SHAKE128_RATE;
+  xof_squeezeblocks(buf, MLKEM_GEN_MATRIX_NBLOCKS, &state);
+  buflen = MLKEM_GEN_MATRIX_NBLOCKS * XOF_RATE;
   ctr = rej_uniform(entry->coeffs, MLKEM_N, 0, buf, buflen);
 
   /* Squeeze + sample one more block a time until we're done */
-  buflen = SHAKE128_RATE;
+  buflen = XOF_RATE;
   while (ctr < MLKEM_N)
   __loop__(
     assigns(ctr, state, memory_slice(entry, sizeof(poly)), object_whole(buf))
@@ -252,25 +245,25 @@ __contract__(
     invariant(ctr > 0 ==> array_bound(entry->coeffs, 0, ctr - 1,
                                           0, (MLKEM_Q - 1))))
   {
-    shake128_squeezeblocks(buf, 1, &state);
-    ctr = rej_uniform(entry->coeffs, MLKEM_N, ctr, buf, SHAKE128_RATE);
+    xof_squeezeblocks(buf, 1, &state);
+    ctr = rej_uniform(entry->coeffs, MLKEM_N, ctr, buf, XOF_RATE);
   }
 
-  shake128_inc_ctx_release(&state);
+  xof_release(&state);
 }
 
-/*************************************************
- * Name:        gen_matrix
- *
- * Description: Deterministically generate matrix A (or the transpose of A)
- *              from a seed. Entries of the matrix are polynomials that look
- *              uniformly random. Performs rejection sampling on output of
- *              a XOF
- *
- * Arguments:   - polyvec *a: pointer to ouptput matrix A
- *              - const uint8_t *seed: pointer to input seed
- *              - int transposed: boolean deciding whether A or A^T is generated
- **************************************************/
+#if !defined(MLKEM_USE_NATIVE_NTT_CUSTOM_ORDER)
+STATIC_INLINE_TESTABLE
+void poly_permute_bitrev_to_custom(poly *data)
+__contract__(
+  /* We don't specify that this should be a permutation, but only
+   * that it does not change the bound established at the end of gen_matrix. */
+  requires(memory_no_alias(data, sizeof(poly)))
+  requires(array_bound(data->coeffs, 0, MLKEM_N - 1, 0, MLKEM_Q - 1))
+  assigns(memory_slice(data, sizeof(poly)))
+  ensures(array_bound(data->coeffs, 0, MLKEM_N - 1, 0, MLKEM_Q - 1))) { ((void)data); }
+#endif /* MLKEM_USE_NATIVE_NTT_CUSTOM_ORDER */
+
 /* Not static for benchmarking */
 void gen_matrix(polyvec *a, const uint8_t seed[MLKEM_SYMBYTES], int transposed)
 {
@@ -350,7 +343,6 @@ void gen_matrix(polyvec *a, const uint8_t seed[MLKEM_SYMBYTES], int transposed)
   cassert(i == MLKEM_K * MLKEM_K,
           "gen_matrix: failed to generate whole matrix");
 
-#if defined(MLKEM_USE_NATIVE_NTT_CUSTOM_ORDER)
   /*
    * The public matrix is generated in NTT domain. If the native backend
    * uses a custom order in NTT domain, permute A accordingly.
@@ -362,7 +354,6 @@ void gen_matrix(polyvec *a, const uint8_t seed[MLKEM_SYMBYTES], int transposed)
       poly_permute_bitrev_to_custom(&a[i].vec[j]);
     }
   }
-#endif /* MLKEM_USE_NATIVE_NTT_CUSTOM_ORDER */
 }
 
 /*************************************************
@@ -373,7 +364,7 @@ void gen_matrix(polyvec *a, const uint8_t seed[MLKEM_SYMBYTES], int transposed)
  *
  * Arguments:   - polyvec *out: Pointer to output polynomial vector
  *              - polyvec a[MLKEM_K]: Input matrix. Must be in NTT domain
- *                  and have coefficients of absolute value < MLKEM_Q.
+ *                  and have coefficients of absolute value < 4096.
  *              - polyvec *v: Input polynomial vector. Must be in NTT domain.
  *              - polyvec *vc: Mulcache for v, computed via
  *                  polyvec_mulcache_compute().
@@ -388,7 +379,7 @@ __contract__(
   requires(memory_no_alias(vc, sizeof(polyvec_mulcache)))
   requires(forall(int, k0, 0, MLKEM_K - 1,
   forall(int, k1, 0, MLKEM_K - 1,
-    array_abs_bound(a[k0].vec[k1].coeffs, 0, MLKEM_N - 1, (MLKEM_Q - 1)))))
+    array_abs_bound(a[k0].vec[k1].coeffs, 0, MLKEM_N - 1, UINT12_MAX))))
   assigns(object_whole(out)))
 {
   int i;
@@ -401,19 +392,7 @@ __contract__(
   }
 }
 
-/*************************************************
- * Name:        indcpa_keypair_derand
- *
- * Description: Generates public and private key for the CPA-secure
- *              public-key encryption scheme underlying ML-KEM
- *
- * Arguments:   - uint8_t *pk: pointer to output public key
- *                             (of length MLKEM_INDCPA_PUBLICKEYBYTES bytes)
- *              - uint8_t *sk: pointer to output private key
- *                             (of length MLKEM_INDCPA_SECRETKEYBYTES bytes)
- *              - const uint8_t *coins: pointer to input randomness
- *                             (of length MLKEM_SYMBYTES bytes)
- **************************************************/
+
 
 STATIC_ASSERT(NTT_BOUND + MLKEM_Q < INT16_MAX, indcpa_enc_bound_0)
 
@@ -474,21 +453,6 @@ void indcpa_keypair_derand(uint8_t pk[MLKEM_INDCPA_PUBLICKEYBYTES],
   pack_pk(pk, &pkpv, publicseed);
 }
 
-/*************************************************
- * Name:        indcpa_enc
- *
- * Description: Encryption function of the CPA-secure
- *              public-key encryption scheme underlying Kyber.
- *
- * Arguments:   - uint8_t *c: pointer to output ciphertext
- *                            (of length MLKEM_INDCPA_BYTES bytes)
- *              - const uint8_t *m: pointer to input message
- *                                  (of length MLKEM_INDCPA_MSGBYTES bytes)
- *              - const uint8_t *pk: pointer to input public key
- *                                   (of length MLKEM_INDCPA_PUBLICKEYBYTES)
- *              - const uint8_t *coins: pointer to input random coins used as
- *seed (of length MLKEM_SYMBYTES) to deterministically generate all randomness
- **************************************************/
 
 /* Check that the arithmetic in indcpa_enc() does not overflow */
 STATIC_ASSERT(INVNTT_BOUND + MLKEM_ETA1 < INT16_MAX, indcpa_enc_bound_0)

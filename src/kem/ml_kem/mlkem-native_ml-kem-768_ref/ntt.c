@@ -2,14 +2,12 @@
  * Copyright (c) 2024 The mlkem-native project authors
  * SPDX-License-Identifier: Apache-2.0
  */
-#include "ntt.h"
 #include <stdint.h>
-#include "params.h"
-#include "reduce.h"
 
-#include "arith_native.h"
+#include "arith_backend.h"
 #include "debug/debug.h"
 #include "ntt.h"
+#include "reduce.h"
 
 #if !defined(MLKEM_USE_NATIVE_NTT)
 /*
@@ -59,7 +57,7 @@ __contract__(
   for (j = start; j < start + len; j++)
   __loop__(
     invariant(start <= j && j <= start + len)
-    /* 
+    /*
      * Coefficients are updated in strided pairs, so the bounds for the
      * intermediate states alternate twice between the old and new bound
      */
@@ -120,10 +118,7 @@ __contract__(
  * but this is not needed in the calling code. Should we change the
  * base multiplication strategy to require smaller NTT output bounds,
  * the proof may need strengthening.
- * REF-CHANGE: Removed indirection poly_ntt -> ntt()
- * and integrated polynomial reduction into the NTT.
  */
-
 
 void poly_ntt(poly *p)
 {
@@ -242,27 +237,12 @@ void poly_invntt_tomont(poly *p)
 }
 #endif /* MLKEM_USE_NATIVE_INTT */
 
-/*************************************************
- * Name:        basemul_cached
- *
- * Description: Multiplication of polynomials in Zq[X]/(X^2-zeta)
- *              used for multiplication of elements in Rq in NTT domain
- *
- *              Bounds:
- *              - a is assumed to be < q in absolute value.
- *              - Return value < 3/2 q in absolute value
- *
- * Arguments:   - int16_t r[2]: pointer to the output polynomial
- *              - const int16_t a[2]: pointer to the first factor
- *              - const int16_t b[2]: pointer to the second factor
- *              - int16_t b_cached: Cached precomputation of b[1] * zeta
- **************************************************/
 void basemul_cached(int16_t r[2], const int16_t a[2], const int16_t b[2],
                     int16_t b_cached)
 {
   int32_t t0, t1;
 
-  BOUND(a, 2, MLKEM_Q, "basemul input bound");
+  BOUND(a, 2, 4096, "basemul input bound");
 
   t0 = (int32_t)a[1] * b_cached;
   t0 += (int32_t)a[0] * b[0];
@@ -273,6 +253,5 @@ void basemul_cached(int16_t r[2], const int16_t a[2], const int16_t b[2],
   r[0] = montgomery_reduce(t0);
   r[1] = montgomery_reduce(t1);
 
-  /* |r[i]| < 3/2 q */
-  BOUND(r, 2, 3 * MLKEM_Q / 2, "basemul output bound");
+  BOUND(r, 2, 2 * MLKEM_Q, "basemul output bound");
 }

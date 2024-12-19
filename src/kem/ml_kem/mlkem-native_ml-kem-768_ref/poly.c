@@ -2,20 +2,19 @@
  * Copyright (c) 2024 The mlkem-native project authors
  * SPDX-License-Identifier: Apache-2.0
  */
-#include "poly.h"
 #include <stdint.h>
 #include <string.h>
+
+#include "arith_backend.h"
 #include "cbd.h"
 #include "cbmc.h"
+#include "debug/debug.h"
 #include "fips202x4.h"
 #include "ntt.h"
-#include "params.h"
+#include "poly.h"
 #include "reduce.h"
 #include "symmetric.h"
 #include "verify.h"
-
-#include "arith_native.h"
-#include "debug/debug.h"
 
 void poly_compress_du(uint8_t r[MLKEM_POLYCOMPRESSEDBYTES_DU], const poly *a)
 {
@@ -35,8 +34,6 @@ void poly_compress_du(uint8_t r[MLKEM_POLYCOMPRESSEDBYTES_DU], const poly *a)
     }
 
     /*
-     * REF-CHANGE: Use array indexing into
-     * r rather than pointer-arithmetic to simplify verification
      * Make all implicit truncation explicit. No data is being
      * truncated for the LHS's since each t[i] is 11-bit in size.
      */
@@ -68,8 +65,6 @@ void poly_compress_du(uint8_t r[MLKEM_POLYCOMPRESSEDBYTES_DU], const poly *a)
     }
 
     /*
-     * REF-CHANGE: Use array indexing into
-     * r rather than pointer-arithmetic to simplify verification
      * Make all implicit truncation explicit. No data is being
      * truncated for the LHS's since each t[i] is 10-bit in size.
      */
@@ -160,14 +155,9 @@ void poly_compress_dv(uint8_t r[MLKEM_POLYCOMPRESSEDBYTES_DV], const poly *a)
       invariant(i >= 0 && i <= MLKEM_N / 8 && j >= 0 && j <= 8)
       invariant(array_bound(t, 0, (j-1), 0, 15)))
     {
-      /* REF-CHANGE: Precondition change, we assume unsigned canonical data */
       t[j] = scalar_compress_d4(a->coeffs[8 * i + j]);
     }
 
-    /*
-     * REF-CHANGE: Use array indexing into
-     * r rather than pointer-arithmetic to simplify verification
-     */
     r[i * 4] = t[0] | (t[1] << 4);
     r[i * 4 + 1] = t[2] | (t[3] << 4);
     r[i * 4 + 2] = t[4] | (t[5] << 4);
@@ -184,12 +174,11 @@ void poly_compress_dv(uint8_t r[MLKEM_POLYCOMPRESSEDBYTES_DV], const poly *a)
       invariant(i >= 0 && i <= MLKEM_N / 8 && j >= 0 && j <= 8)
       invariant(array_bound(t, 0, (j-1), 0, 31)))
     {
-      /* REF-CHANGE: Precondition change, we assume unsigned canonical data */
       t[j] = scalar_compress_d5(a->coeffs[8 * i + j]);
     }
 
     /*
-     * REF-CHANGE: Explicitly truncate to avoid warning about
+     * Explicitly truncate to avoid warning about
      * implicit truncation in CBMC, and use array indexing into
      * r rather than pointer-arithmetic to simplify verification
      */
@@ -213,7 +202,6 @@ void poly_decompress_dv(poly *r, const uint8_t a[MLKEM_POLYCOMPRESSEDBYTES_DV])
     invariant(i >= 0 && i <= MLKEM_N / 2)
     invariant(array_bound(r->coeffs, 0, (2 * i - 1), 0, (MLKEM_Q - 1))))
   {
-    /* REF-CHANGE: Hoist scalar decompression into separate function */
     r->coeffs[2 * i + 0] = scalar_decompress_d4((a[i] >> 0) & 0xF);
     r->coeffs[2 * i + 1] = scalar_decompress_d4((a[i] >> 4) & 0xF);
   }
@@ -227,7 +215,7 @@ void poly_decompress_dv(poly *r, const uint8_t a[MLKEM_POLYCOMPRESSEDBYTES_DV])
     uint8_t t[8];
     const int offset = i * 5;
     /*
-     * REF-CHANGE: Explicitly truncate to avoid warning about
+     * Explicitly truncate to avoid warning about
      * implicit truncation in CBMC and unwind loop for ease
      * of proof.
      */
@@ -251,7 +239,6 @@ void poly_decompress_dv(poly *r, const uint8_t a[MLKEM_POLYCOMPRESSEDBYTES_DV])
       invariant(j >= 0 && j <= 8 && i >= 0 && i <= MLKEM_N / 8)
       invariant(array_bound(r->coeffs, 0, (8 * i + j - 1), 0, (MLKEM_Q - 1))))
     {
-      /* REF-CHANGE: Hoist scalar decompression into separate function */
       r->coeffs[8 * i + j] = scalar_decompress_d5(t[j]);
     }
   }
@@ -274,8 +261,6 @@ void poly_tobytes(uint8_t r[MLKEM_POLYBYTES], const poly *a)
   {
     const uint16_t t0 = a->coeffs[2 * i];
     const uint16_t t1 = a->coeffs[2 * i + 1];
-    /* REF-CHANGE: Precondition change, we assume unsigned canonical data */
-
     /*
      * t0 and t1 are both < MLKEM_Q, so contain at most 12 bits each of
      * significant data, so these can be packed into 24 bits or exactly
@@ -311,9 +296,8 @@ void poly_frombytes(poly *r, const uint8_t a[MLKEM_POLYBYTES])
   for (i = 0; i < MLKEM_N / 2; i++)
   __loop__(
     invariant(i >= 0 && i <= MLKEM_N / 2)
-    invariant(array_bound(r->coeffs, 0, (2 * i - 1), 0, 4095)))
+    invariant(array_bound(r->coeffs, 0, (2 * i - 1), 0, UINT12_MAX)))
   {
-    /* REF-CHANGE: Introduce some locals for better readability */
     const uint8_t t0 = a[3 * i + 0];
     const uint8_t t1 = a[3 * i + 1];
     const uint8_t t2 = a[3 * i + 2];
@@ -391,8 +375,8 @@ void poly_getnoise_eta1_4x(poly *r0, poly *r1, poly *r2, poly *r3,
   extkey[1][MLKEM_SYMBYTES] = nonce1;
   extkey[2][MLKEM_SYMBYTES] = nonce2;
   extkey[3][MLKEM_SYMBYTES] = nonce3;
-  shake256x4(buf[0], buf[1], buf[2], buf[3], MLKEM_ETA1 * MLKEM_N / 4,
-             extkey[0], extkey[1], extkey[2], extkey[3], MLKEM_SYMBYTES + 1);
+  prf_eta1_x4(buf[0], buf[1], buf[2], buf[3], extkey[0], extkey[1], extkey[2],
+              extkey[3]);
   poly_cbd_eta1(r0, buf[0]);
   poly_cbd_eta1(r1, buf[1]);
   poly_cbd_eta1(r2, buf[2]);
@@ -408,7 +392,12 @@ void poly_getnoise_eta2(poly *r, const uint8_t seed[MLKEM_SYMBYTES],
                         uint8_t nonce)
 {
   ALIGN uint8_t buf[MLKEM_ETA2 * MLKEM_N / 4];
-  prf(buf, sizeof(buf), seed, nonce);
+  ALIGN uint8_t extkey[MLKEM_SYMBYTES + 1];
+
+  memcpy(extkey, seed, MLKEM_SYMBYTES);
+  extkey[MLKEM_SYMBYTES] = nonce;
+  prf_eta2(buf, extkey);
+
   poly_cbd_eta2(r, buf);
 
   POLY_BOUND_MSG(r, MLKEM_ETA1 + 1, "poly_getnoise_eta2 output");
@@ -432,13 +421,13 @@ void poly_getnoise_eta1122_4x(poly *r0, poly *r1, poly *r2, poly *r3,
   extkey[3][MLKEM_SYMBYTES] = nonce3;
 
 #if MLKEM_ETA1 == MLKEM_ETA2
-  shake256x4(buf1[0], buf1[1], buf2[0], buf2[1], MLKEM_ETA1 * MLKEM_N / 4,
-             extkey[0], extkey[1], extkey[2], extkey[3], MLKEM_SYMBYTES + 1);
+  prf_eta1_x4(buf1[0], buf1[1], buf2[0], buf2[1], extkey[0], extkey[1],
+              extkey[2], extkey[3]);
 #else
-  shake256(buf1[0], sizeof(buf1[0]), extkey[0], sizeof(extkey[0]));
-  shake256(buf1[1], sizeof(buf1[1]), extkey[1], sizeof(extkey[1]));
-  shake256(buf2[0], sizeof(buf2[0]), extkey[2], sizeof(extkey[2]));
-  shake256(buf2[1], sizeof(buf2[1]), extkey[3], sizeof(extkey[3]));
+  prf_eta1(buf1[0], extkey[0]);
+  prf_eta1(buf1[1], extkey[1]);
+  prf_eta2(buf2[0], extkey[2]);
+  prf_eta2(buf2[1], extkey[3]);
 #endif
 
   poly_cbd_eta1(r0, buf1[0]);
@@ -456,13 +445,13 @@ void poly_basemul_montgomery_cached(poly *r, const poly *a, const poly *b,
                                     const poly_mulcache *b_cache)
 {
   int i;
-  POLY_BOUND(b_cache, MLKEM_Q);
+  POLY_BOUND(b_cache, 4096);
 
   for (i = 0; i < MLKEM_N / 4; i++)
   __loop__(
     assigns(i, object_whole(r))
     invariant(i >= 0 && i <= MLKEM_N / 4)
-    invariant(array_abs_bound(r->coeffs, 0, (4 * i - 1), (3 * HALF_Q - 1))))
+    invariant(array_abs_bound(r->coeffs, 0, (4 * i - 1), 2 * MLKEM_Q - 1)))
   {
     basemul_cached(&r->coeffs[4 * i], &a->coeffs[4 * i], &b->coeffs[4 * i],
                    b_cache->coeffs[2 * i]);

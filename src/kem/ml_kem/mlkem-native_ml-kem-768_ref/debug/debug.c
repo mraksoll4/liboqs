@@ -53,6 +53,7 @@ void mlkem_debug_print_error(const char *file, int line, const char *msg)
 
 #else /* MLKEM_DEBUG */
 
+#define empty_cu_debug MLKEM_NAMESPACE(empty_cu_debug)
 int empty_cu_debug;
 
 #endif /* MLKEM_DEBUG */

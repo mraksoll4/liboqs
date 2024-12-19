@@ -6,7 +6,7 @@
 #define POLYVEC_H
 
 #include <stdint.h>
-#include "params.h"
+#include "common.h"
 #include "poly.h"
 
 typedef struct
@@ -14,7 +14,6 @@ typedef struct
   poly vec[MLKEM_K];
 } ALIGN polyvec;
 
-/* REF-CHANGE: This struct does not exist in the reference implementation */
 typedef struct
 {
   poly_mulcache vec[MLKEM_K];
@@ -93,7 +92,7 @@ __contract__(
  *
  * Arguments:   - const polyvec *a: pointer to output vector of polynomials
  *                 (of length MLKEM_POLYVECBYTES). Output will have coefficients
- *                 normalized to [0,..,q-1].
+ *                 normalized in [0..4095].
  *              - uint8_t *r: pointer to input byte array
  **************************************************/
 void polyvec_frombytes(polyvec *r, const uint8_t a[MLKEM_POLYVECBYTES])
@@ -102,7 +101,7 @@ __contract__(
   requires(memory_no_alias(a, MLKEM_POLYVECBYTES))
   assigns(object_whole(r))
   ensures(forall(int, k0, 0, MLKEM_K - 1,
-        array_bound(r->vec[k0].coeffs, 0, (MLKEM_N - 1), 0, 4095)))
+        array_bound(r->vec[k0].coeffs, 0, (MLKEM_N - 1), 0, UINT12_MAX)))
 );
 
 #define polyvec_ntt MLKEM_NAMESPACE(polyvec_ntt)
@@ -156,10 +155,27 @@ __contract__(
 
 #define polyvec_basemul_acc_montgomery \
   MLKEM_NAMESPACE(polyvec_basemul_acc_montgomery)
-void polyvec_basemul_acc_montgomery(poly *r, const polyvec *a,
-                                    const polyvec *b);
+/*************************************************
+ * Name:        polyvec_basemul_acc_montgomery
+ *
+ * Description: Multiply elements of a and b in NTT domain, accumulate into r,
+ *              and multiply by 2^-16.
+ *
+ * Arguments: - poly *r: pointer to output polynomial
+ *            - const polyvec *a: pointer to first input vector of polynomials
+ *            - const polyvec *b: pointer to second input vector of polynomials
+ **************************************************/
+void polyvec_basemul_acc_montgomery(poly *r, const polyvec *a, const polyvec *b)
+__contract__(
+  requires(memory_no_alias(r, sizeof(poly)))
+  requires(memory_no_alias(a, sizeof(polyvec)))
+  requires(memory_no_alias(b, sizeof(polyvec)))
+  requires(forall(int, k1, 0, MLKEM_K - 1,
+    array_abs_bound(a->vec[k1].coeffs, 0, MLKEM_N - 1, UINT12_MAX)))
+  assigns(memory_slice(r, sizeof(poly)))
+);
 
-/* REF-CHANGE: This function does not exist in the reference implementation */
+
 #define polyvec_basemul_acc_montgomery_cached \
   MLKEM_NAMESPACE(polyvec_basemul_acc_montgomery_cached)
 /*************************************************
@@ -169,7 +185,7 @@ void polyvec_basemul_acc_montgomery(poly *r, const polyvec *a,
  *              using mulcache for second operand.
  *
  *              Bounds:
- *              - a is assumed to be coefficient-wise < q in absolute value.
+ *              - a is assumed to be coefficient-wise < 4096 in absolute value.
  *              - No bounds guarantees for the coefficients in the result.
  *
  * Arguments:   - poly *r: pointer to output polynomial
@@ -187,13 +203,11 @@ __contract__(
   requires(memory_no_alias(a, sizeof(polyvec)))
   requires(memory_no_alias(b, sizeof(polyvec)))
   requires(memory_no_alias(b_cache, sizeof(polyvec_mulcache)))
-/* Input is coefficient-wise < q in absolute value */
   requires(forall(int, k1, 0, MLKEM_K - 1,
- array_abs_bound(a->vec[k1].coeffs, 0, MLKEM_N - 1, (MLKEM_Q - 1))))
+    array_abs_bound(a->vec[k1].coeffs, 0, MLKEM_N - 1, UINT12_MAX)))
   assigns(memory_slice(r, sizeof(poly)))
 );
 
-/* REF-CHANGE: This function does not exist in the reference implementation */
 #define polyvec_mulcache_compute MLKEM_NAMESPACE(polyvec_mulcache_compute)
 /************************************************************
  * Name: polyvec_mulcache_compute
@@ -238,11 +252,11 @@ __contract__(
  * Arguments:   - polyvec *r: pointer to input/output polynomial
  **************************************************/
 /*
- * REF-CHANGE: The semantics of polyvec_reduce() is different in
- *             the reference implementation, which requires
- *             signed canonical output data. Unsigned canonical
- *             outputs are better suited to the only remaining
- *             use of poly_reduce() in the context of (de)serialization.
+ * NOTE: The semantics of polyvec_reduce() is different in
+ *       the reference implementation, which requires
+ *       signed canonical output data. Unsigned canonical
+ *       outputs are better suited to the only remaining
+ *       use of poly_reduce() in the context of (de)serialization.
  */
 void polyvec_reduce(polyvec *r)
 __contract__(

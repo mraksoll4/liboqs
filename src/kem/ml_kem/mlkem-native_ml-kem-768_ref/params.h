@@ -5,33 +5,15 @@
 #ifndef PARAMS_H
 #define PARAMS_H
 
-#include "common.h"
-#include "cpucap.h"
+#include "config.h"
 
-#ifndef KECCAK_WAY
-#define KECCAK_WAY 4
-#endif
-
-#ifndef MLKEM_K
-#define MLKEM_K 3 /* Change this for different security strengths */
-#endif
-
-/* Don't change parameters below this line */
-#if (MLKEM_K == 2)
-#define MLKEM_NAMESPACE(s) PQCP_MLKEM_NATIVE_MLKEM512_##s
-#define _MLKEM_NAMESPACE(s) _PQCP_MLKEM_NATIVE_MLKEM512_##s
-#elif (MLKEM_K == 3)
-#define MLKEM_NAMESPACE(s) PQCP_MLKEM_NATIVE_MLKEM768_##s
-#define _MLKEM_NAMESPACE(s) _PQCP_MLKEM_NATIVE_MLKEM768_##s
-#elif (MLKEM_K == 4)
-#define MLKEM_NAMESPACE(s) PQCP_MLKEM_NATIVE_MLKEM1024_##s
-#define _MLKEM_NAMESPACE(s) _PQCP_MLKEM_NATIVE_MLKEM1024_##s
-#else
-#error "MLKEM_K must be in {2,3,4}"
+#if !defined(MLKEM_K)
+#error MLKEM_K is not defined
 #endif
 
 #define MLKEM_N 256
 #define MLKEM_Q 3329
+#define UINT12_MAX 4095
 
 #define MLKEM_SYMBYTES 32 /* size in bytes of hashes, and seeds */
 #define MLKEM_SSBYTES 32  /* size in bytes of shared key */
@@ -71,4 +53,5 @@
    2 * MLKEM_SYMBYTES)
 #define MLKEM_CIPHERTEXTBYTES (MLKEM_INDCPA_BYTES)
 
+#define KECCAK_WAY 4
 #endif

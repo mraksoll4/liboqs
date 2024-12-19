@@ -8,7 +8,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "cbmc.h"
-#include "params.h"
+#include "common.h"
 #include "reduce.h"
 #include "verify.h"
 
@@ -30,10 +30,6 @@ typedef struct
 /*
  * INTERNAL presentation of precomputed data speeding up
  * the base multiplication of two polynomials in NTT domain.
- */
-/*
- * REF-CHANGE: This structure does not exist in the reference
- * implementation.
  */
 typedef struct
 {
@@ -439,7 +435,7 @@ __contract__(
   requires(memory_no_alias(a, MLKEM_POLYBYTES))
   requires(memory_no_alias(r, sizeof(poly)))
   assigns(memory_slice(r, sizeof(poly)))
-  ensures(array_bound(r->coeffs, 0, (MLKEM_N - 1), 0, 4095))
+  ensures(array_bound(r->coeffs, 0, (MLKEM_N - 1), 0, UINT12_MAX))
 );
 
 
@@ -637,9 +633,9 @@ __contract__(
   requires(memory_no_alias(a, sizeof(poly)))
   requires(memory_no_alias(b, sizeof(poly)))
   requires(memory_no_alias(b_cache, sizeof(poly_mulcache)))
-  requires(array_abs_bound(a->coeffs, 0, MLKEM_N - 1, (MLKEM_Q - 1)))
+  requires(array_abs_bound(a->coeffs, 0, MLKEM_N - 1, UINT12_MAX))
   assigns(object_whole(r))
-  ensures(array_abs_bound(r->coeffs, 0, MLKEM_N - 1, (3 * HALF_Q - 1)))
+  ensures(array_abs_bound(r->coeffs, 0, MLKEM_N - 1, 2 * MLKEM_Q - 1))
 );
 
 #define poly_tomont MLKEM_NAMESPACE(poly_tomont)
@@ -660,7 +656,6 @@ __contract__(
   ensures(array_abs_bound(r->coeffs, 0, MLKEM_N - 1, (MLKEM_Q - 1)))
 );
 
-/* REF-CHANGE: This function does not exist in the reference implementation */
 #define poly_mulcache_compute MLKEM_NAMESPACE(poly_mulcache_compute)
 /************************************************************
  * Name: poly_mulcache_compute
@@ -703,7 +698,7 @@ __contract__(
  * Arguments:   - poly *r: pointer to input/output polynomial
  **************************************************/
 /*
- * REF-CHANGE: The semantics of poly_reduce() is different in
+ * NOTE: The semantics of poly_reduce() is different in
  * the reference implementation, which requires
  * signed canonical output data. Unsigned canonical
  * outputs are better suited to the only remaining
@@ -731,8 +726,7 @@ __contract__(
  *
  ************************************************************/
 /*
- * REF-CHANGE:
- * The reference implementation uses a 3-argument poly_add.
+ * NOTE: The reference implementation uses a 3-argument poly_add.
  * We specialize to the accumulator form to avoid reasoning about aliasing.
  */
 void poly_add(poly *r, const poly *b)
@@ -756,8 +750,7 @@ __contract__(
  *            - const poly *b: Pointer to second input polynomial
  **************************************************/
 /*
- * REF-CHANGE:
- * The reference implementation uses a 3-argument poly_sub.
+ * NOTE: The reference implementation uses a 3-argument poly_sub.
  * We specialize to the accumulator form to avoid reasoning about aliasing.
  */
 void poly_sub(poly *r, const poly *b)
